@@ -2,7 +2,8 @@
 import hashlib
 from urllib.parse import quote
 
-from minutas import TEMPLATE, VERSION, COMPARTIDOS, CONTRATO, INSTITUCION, texto
+from minutas import TEMPLATE, VERSION, texto
+from referencia import CAMPOS
 
 PROJECT_URL = 'https://zwpmdgpywgypdmqygsvv.supabase.co'
 TABLE = 'MinutasIndependientes'
@@ -31,7 +32,7 @@ def guardar(row, contenido, registro_id, actor, *, url, key, request):
         'anio_contrato': int(texto(row['anio_contrato'])),
         'version_plantilla': VERSION,
         'plantilla_sha256': hashlib.sha256(TEMPLATE.read_bytes()).hexdigest(),
-        'datos_minuta': {k: texto(row.get(k)) for k in (*COMPARTIDOS, *CONTRATO, *INSTITUCION)},
+        'datos_minuta': {k: texto(row.get(k)) for k in CAMPOS},
         'storage_bucket': BUCKET, 'storage_path': path,
         'minuta_sha256': hashlib.sha256(contenido).hexdigest(),
     }

@@ -3,7 +3,8 @@ import unittest
 import zipfile
 from unittest.mock import patch
 from streamlit.testing.v1 import AppTest
-from test_minutas import fixture, ROOT
+from test_minutas import fixture, institucion, ROOT
+from referencia import datos_archivo
 from storage import guardar, PROJECT_URL, TABLE, BUCKET
 
 
@@ -13,17 +14,14 @@ class AppTests(unittest.TestCase):
         app = AppTest.from_file(str(ROOT/'streamlit_app.py'), default_timeout=30)
         app.secrets['ADMIN_PASSWORD'] = 'test-only'
         app.secrets['SUPABASE_SERVICE_ROLE_KEY'] = 'sb_secret_test'
+        app.secrets['MINUTA_INSTITUCION'] = institucion()
         app.run()
         self.assertFalse(app.exception)
         data = fixture()
         for field in app.text_input:
             if field.key and field.key.startswith('minuta_'):
                 field.set_value(data[field.key[7:]])
-            elif field.label == 'Contratista *':
-                field.set_value(data['contratista'])
-            elif field.label == 'Código del objeto *':
-                field.set_value(data['codigo_objeto'])
-        app.text_area[0].set_value(data['objeto_contrato'])
+        app.text_area[0].set_value(data['objeto'])
         next(b for b in app.button if b.label == 'Generar Minuta').click().run()
         self.assertFalse(app.exception)
         with zipfile.ZipFile(io.BytesIO(app.session_state['resultado']['zip'])) as z:
@@ -32,7 +30,7 @@ class AppTests(unittest.TestCase):
         self.assertTrue(save.disabled)
         next(f for f in app.text_input if f.label == 'Clave administrativa para guardar').set_value('test-only').run()
         self.assertFalse(next(b for b in app.button if b.label == 'Guardar Minutas en Supabase').disabled)
-        app.text_input(key='minuta_cdp_numero').set_value('')
+        app.text_input(key='minuta_cdp').set_value('')
         next(b for b in app.button if b.label == 'Generar Minuta').click().run()
         self.assertNotIn('resultado', app.session_state)
         self.assertTrue(app.warning)
@@ -56,7 +54,7 @@ class AppTests(unittest.TestCase):
         def request(*a, **kw):
             calls.append((a, kw))
             return Response()
-        record = guardar(fixture(), b'word', 'test-id', 'Test', url=PROJECT_URL,
+        record = guardar(datos_archivo(fixture(),institucion()), b'word', 'test-id', 'Test', url=PROJECT_URL,
                          key='sb_secret_test', request=request)
         self.assertEqual(len(calls), 3)
         self.assertTrue(calls[0][0][1].endswith(TABLE))

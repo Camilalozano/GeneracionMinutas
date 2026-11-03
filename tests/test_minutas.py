@@ -1,95 +1,62 @@
-import ast
 import io
-from pathlib import Path
-import subprocess
-import tempfile
+import sys
 import unittest
 import zipfile
+from pathlib import Path
 from lxml import etree
-
-import pandas as pd
-from docx import Document
-
-import minutas
-
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def ep_functions(source):
-    tree = ast.parse(source)
-    wanted = {'replace_text_in_paragraph', 'diligenciar_documento'}
-    module = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted], type_ignores=[])
-    scope = {'Document': Document}
-    exec(compile(module, '<ep>', 'exec'), scope)
-    return scope['diligenciar_documento']
-
+sys.path.insert(0, str(ROOT))
+from minutas import generar_minuta, validar_minuta, modalidad, TEMPLATE, NS
+from referencia import CAMPOS, INSTITUCION, EXCEL_TEMPLATE, leer_excel, datos_archivo
 
 def fixture():
-    data = {key: 'Dato de prueba' for key in (*minutas.CONTRATO, *minutas.INSTITUCION)}
-    data.update(minutas.DEFAULTS)
-    data.update(contratista='PERSONA DE PRUEBA', tipo_contrato='Prestación de servicios profesionales',
-                codigo_objeto='COD-PRUEBA', objeto_contrato='Prestar servicios de análisis de información.',
-                numero_contrato='001', anio_contrato='2026', cdp_fecha='15/01/2026',
-                contratista_documento='0012345', cdp_numero='0009')
-    return data
+    return dict(zip(CAMPOS, ['001','PERSONA FICTICIA','000123','PROFESIONALES','Prestar servicios de prueba & verificación.','00045']))
 
+def institucion():
+    return {**{k:'DATO INSTITUCIONAL DE PRUEBA' for k in INSTITUCION},'anio_cdp':'2026'}
 
-class Progress:
-    def progress(self, value):
-        assert 0 <= value <= 1
-    def text(self, value):
-        pass
+class MotorTests(unittest.TestCase):
+    def test_both_modalities_and_preserved_package(self):
+        for mode in ['PROFESIONALES', 'DE APOYO A LA GESTIÓN']:
+            row={**fixture(),'modalidad':mode}
+            with zipfile.ZipFile(io.BytesIO(generar_minuta(row,institucion()))) as result, zipfile.ZipFile(TEMPLATE) as source:
+                root=etree.fromstring(result.read('word/document.xml'))
+                text=''.join(root.xpath('//w:t/text()',namespaces=NS))
+                self.assertIn('PRESTACIÓN DE SERVICIOS '+mode+' No. 001',text)
+                for key in ('nombrecontratista','cedula','objeto','cdp'): self.assertIn(row[key],text)
+                self.assertNotIn('{{',text)
+                self.assertEqual(source.namelist(),result.namelist())
+                for name in source.namelist():
+                    if name!='word/document.xml': self.assertEqual(source.read(name),result.read(name),name)
 
+    def test_invalid_data_and_missing_configuration(self):
+        self.assertTrue(validar_minuta({**fixture(),'numerocontrato':'../test'}))
+        self.assertTrue(validar_minuta({**fixture(),'cdp':''}))
+        self.assertTrue(validar_minuta({**fixture(),'modalidad':'compraventa'}))
+        with self.assertRaises(ValueError): generar_minuta(fixture(),{})
+        self.assertEqual(modalidad('Prestación de servicios de apoyo a la gestión'),'DE APOYO A LA GESTIÓN')
 
-class MinutasTest(unittest.TestCase):
-    def test_all_parts_resolved_and_source_intact(self):
-        before = minutas.TEMPLATE.read_bytes()
-        output = minutas.generar_minuta(fixture())
-        with zipfile.ZipFile(io.BytesIO(output)) as z:
-            xml = ''.join(''.join(etree.fromstring(z.read(n)).itertext()) for n in z.namelist() if n.startswith('word/') and n.endswith('.xml'))
-        self.assertNotIn('{{', xml)
-        self.assertIn('ATENEA-001-2026', xml)
-        self.assertIn('0012345', xml)
-        self.assertIn('15 de enero de 2026', xml)
-        self.assertIn('09/12/2025', xml)
-        self.assertEqual(before, minutas.TEMPLATE.read_bytes())
+    def test_excel_headers_text_and_validation(self):
+        import openpyxl
+        wb=openpyxl.load_workbook(EXCEL_TEMPLATE)
+        self.assertEqual(tuple(c.value for c in wb.active[1]),CAMPOS)
+        self.assertEqual(wb.active['A2'].number_format,'@')
+        self.assertEqual(wb.active['C2'].number_format,'@')
+        self.assertTrue(wb.active.data_validations.dataValidation)
+        with self.assertRaises(ValueError): leer_excel(EXCEL_TEMPLATE)
 
-    def test_split_runs_and_table_header(self):
-        doc = Document()
-        p = doc.add_paragraph()
-        p.add_run('Antes ').italic = True
-        p.add_run('{{contr').bold = True
-        p.add_run('atista}} después')
-        doc.sections[0].header.add_paragraph('{{numero_contrato}}')
-        doc.add_table(rows=1, cols=1).cell(0,0).text = '{{cdp_numero}}'
-        stream = io.BytesIO()
-        doc.save(stream)
-        stream.seek(0)
-        result = Document(io.BytesIO(minutas.generar_minuta(fixture(), stream)))
-        self.assertEqual(result.paragraphs[0].text, 'Antes PERSONA DE PRUEBA después')
-        self.assertTrue(result.paragraphs[0].runs[0].italic)
-        self.assertEqual(result.tables[0].cell(0,0).text, '0009')
-        self.assertIn('001', '\n'.join(p.text for p in result.sections[0].header.paragraphs))
+    def test_excel_read_retains_zeros_and_row_numbers(self):
+        from unittest.mock import patch
+        import pandas as pd
+        frame=pd.DataFrame([list(CAMPOS),list(fixture().values()),['']*6])
+        with patch('pandas.read_excel',return_value=frame):
+            rows=leer_excel(io.BytesIO())
+        self.assertEqual(rows,[(2,fixture())])
+        frame.iloc[0,1]='cedula'
+        with patch('pandas.read_excel',return_value=frame), self.assertRaises(ValueError): leer_excel(io.BytesIO())
 
-    def test_reject_missing_wrong_date_and_unsupported_contract(self):
-        for key, value in [('contratista', ''), ('cdp_fecha', '31/02/2026'),
-                           ('tipo_contrato', 'Compraventa'), ('anio_contrato', '2026.0'),
-                           ('numero_contrato', 'ATENEA-001-2026'), ('ordenador_nombre', float('nan'))]:
-            with self.subTest(key=key):
-                data = fixture(); data[key] = value
-                with self.assertRaises(ValueError):
-                    minutas.generar_minuta(data)
-
-
-
-
-    def test_spanish_labels_are_not_mojibake(self):
-        source = (ROOT/'minutas.py').read_text(encoding='utf-8')
-        self.assertNotIn('\u00c3', source)
-        self.assertNotIn('\u00c2', source)
-        self.assertIn('N\u00famero de contrato', minutas.CONTRATO['numero_contrato'])
-
-
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_database_compatibility(self):
+        row=datos_archivo({**fixture(),'numerocontrato':'ATENEA-001-2027'},institucion())
+        self.assertEqual(row['numero_contrato'],'001')
+        self.assertEqual(row['anio_contrato'],'2027')
+        self.assertEqual(row['numerocontrato'],'ATENEA-001-2027')

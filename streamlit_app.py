@@ -9,8 +9,8 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from minutas import (COMPARTIDOS, CONTRATO, INSTITUCION, formulario_minuta,
-                     generar_minuta, validar_minuta)
+from minutas import generar_minuta, validar_minuta
+from referencia import EXCEL_TEMPLATE, leer_excel, validar_institucion, datos_archivo
 from storage import guardar, PROJECT_URL
 
 
@@ -29,50 +29,46 @@ st.caption('Minutas de persona natural · Formulario y carga masiva independient
 actor = st.sidebar.text_input('Responsable de la generación')
 mode = st.radio('Captura de datos', ['Formulario', 'Excel'])
 rows = None
+institucion = dict(config('MINUTA_INSTITUCION', {}))
 if mode == 'Formulario':
     with st.form('minuta'):
         data = {}
-        data['contratista'] = st.text_input('Contratista *')
-        data['tipo_contrato'] = st.selectbox('Tipo de contrato *',
-            ['Prestación de servicios profesionales', 'Prestación de servicios de apoyo a la gestión'])
-        data['codigo_objeto'] = st.text_input('Código del objeto *')
-        data['objeto_contrato'] = st.text_area('Objeto del contrato *')
-        data.update(formulario_minuta(st, dict(config('MINUTA_INSTITUCION', {}))))
+        data['numerocontrato'] = st.text_input('Número de contrato *', key='minuta_numerocontrato', help='Escribe el número tal como debe aparecer: 001 o ATENEA-001-2026.')
+        data['nombrecontratista'] = st.text_input('Nombre del contratista *', key='minuta_nombrecontratista')
+        data['cedula'] = st.text_input('Cédula del contratista *', key='minuta_cedula')
+        data['modalidad'] = st.selectbox('Modalidad *', ['PROFESIONALES', 'DE APOYO A LA GESTIÓN'], key='minuta_modalidad')
+        data['objeto'] = st.text_area('Objeto del contrato *', key='minuta_objeto')
+        data['cdp'] = st.text_input('Número del CDP *', key='minuta_cdp')
         submitted = st.form_submit_button('Generar Minuta')
     if submitted:
-        rows = [data]
+        rows = [(1, data)]
 else:
-    fields = [*COMPARTIDOS, *CONTRATO, *INSTITUCION]
-    excel = io.BytesIO()
-    pd.DataFrame(columns=fields).to_excel(excel, index=False)
-    st.download_button('Descargar plantilla Excel de Minutas', excel.getvalue(), 'PlantillaMinutas.xlsx')
+    st.download_button('Descargar plantilla Excel de Minutas', EXCEL_TEMPLATE.read_bytes(), 'BaseVFMinuta.xlsx')
     uploaded = st.file_uploader('Excel de Minutas', type=['xlsx'])
     st.caption('Guarda números de contrato y documentos como texto para conservar los ceros iniciales.')
     if st.button('Generar Minutas', disabled=uploaded is None):
         st.session_state.pop('resultado', None)
         try:
-            frame = pd.read_excel(uploaded, dtype=str).fillna('')
-            if frame.empty:
-                st.error('El archivo no contiene registros.')
-            else:
-                rows = frame.to_dict('records')
+            rows = leer_excel(uploaded)
+        except ValueError as error:
+            st.error(str(error))
         except Exception:
             st.error('No se pudo leer el Excel. Verifica su formato.')
 
 if rows is not None:
     st.session_state.pop('resultado', None)
-    errors = [f'Fila {i}: {error}' for i, row in enumerate(rows, 1) for error in validar_minuta(row)]
+    errors = validar_institucion(institucion) + [f'Fila {i}: {error}' for i, row in rows for error in validar_minuta(row)]
     if errors:
         for error in errors:
             st.warning(error)
     else:
         try:
-            documents = [{'id': str(uuid.uuid4()), 'data': row, 'docx': generar_minuta(row),
-                          'actor': actor, 'saved': False} for row in rows]
+            documents = [{'id': str(uuid.uuid4()), 'data': datos_archivo(row, institucion), 'docx': generar_minuta(row, institucion),
+                          'actor': actor, 'saved': False} for _, row in rows]
             archive = io.BytesIO()
             with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as package:
                 for i, item in enumerate(documents, 1):
-                    package.writestr(f'{i:03d}_Minuta_{item["data"]["numero_contrato"]}.docx', item['docx'])
+                    package.writestr(f'{i:03d}_Minuta_{item["data"]["numerocontrato"]}.docx', item['docx'])
             st.session_state['resultado'] = {'documents': documents, 'zip': archive.getvalue()}
         except Exception:
             st.error('No se pudo generar la minuta. Verifica la plantilla y los datos.')

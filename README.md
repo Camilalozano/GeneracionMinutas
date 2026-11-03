@@ -1,6 +1,6 @@
 # Generación de Minutas
 
-Aplicativo Streamlit independiente para minutas de persona natural. Extraído de Camilalozano/GeneracionEP_Minutas, commit `5dbf684`, conservando la plantilla y el motor de reemplazo de texto.
+Aplicativo Streamlit independiente para minutas de persona natural. Usa el Excel de seis campos BaseVFMinuta y la plantilla F7_P11_C V2 suministrados por la usuaria. Consulta [campos y configuración](REFERENCIAS.md).
 
 ## Funciones
 
