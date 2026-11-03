@@ -25,16 +25,7 @@ st.set_page_config(page_title='Atenea · Generación de Minutas', page_icon='�
 st.title('Generación de Minutas')
 st.caption('Minutas de persona natural · Formulario y carga masiva independientes')
 
-# All access to the server-side key is behind the application's password.
-password = config('ADMIN_PASSWORD')
-if password:
-    entered = st.sidebar.text_input('Contraseña de acceso', type='password')
-    if not hmac.compare_digest(entered, str(password)):
-        st.info('Ingresa la contraseña de acceso para continuar.')
-        st.stop()
-else:
-    st.warning('Modo local: generación y descarga sin guardar. Configura ADMIN_PASSWORD para habilitar Supabase.')
-
+# La captura, generación y descarga son públicas.
 actor = st.sidebar.text_input('Responsable de la generación')
 mode = st.radio('Captura de datos', ['Formulario', 'Excel'])
 rows = None
@@ -93,7 +84,14 @@ if result:
     if len(result['documents']) == 1:
         st.download_button('Descargar Minuta (Word)', result['documents'][0]['docx'], 'Minuta.docx',
                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-    enabled = bool(password and config('SUPABASE_SERVICE_ROLE_KEY'))
+    # La clave administrativa solo protege el guardado; nunca bloquea el uso.
+    password = config('ADMIN_PASSWORD')
+    entered = ''
+    if password and config('SUPABASE_SERVICE_ROLE_KEY'):
+        with st.expander('Guardado administrativo (opcional)'):
+            entered = st.text_input('Clave administrativa para guardar', type='password')
+    enabled = bool(password and config('SUPABASE_SERVICE_ROLE_KEY')
+                   and hmac.compare_digest(entered, str(password)))
     if st.button('Guardar Minutas en Supabase', disabled=not enabled):
         for item in result['documents']:
             if item['saved']:

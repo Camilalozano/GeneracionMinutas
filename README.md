@@ -9,7 +9,8 @@ Aplicativo Streamlit independiente para minutas de persona natural. Extraído de
 - Descarga Word individual y ZIP masivo.
 - Guardado explícito en `MinutasIndependientes` y bucket privado `minutas-independientes`.
 - Reintentos con el mismo UUID; las descargas siguen disponibles si Supabase falla.
-- Contraseña requerida para habilitar persistencia. Sin contraseña funciona en modo local de descarga.
+- Acceso público al formulario, Excel, generación y descarga: no se solicita contraseña al iniciar.
+- La clave administrativa solo se solicita para el guardado opcional en Supabase.
 
 ## Ejecutar
 
@@ -23,7 +24,7 @@ python -m unittest discover -s tests -v
 
 1. Crear una app Streamlit desde `Camilalozano/GeneracionMinutas`, rama `main`, archivo `streamlit_app.py`, Python 3.12.
 2. Configurar Secrets según `.streamlit/secrets.toml.example`. Introducir los valores directamente en Streamlit, nunca por chat ni en GitHub.
-3. Configurar una contraseña de acceso y una clave de servidor de Supabase. El código solo acepta la URL del proyecto `zwpmdgpywgypdmqygsvv`.
+3. Para habilitar el guardado administrativo, configurar `ADMIN_PASSWORD` y una clave de servidor de Supabase. El código solo acepta la URL del proyecto `zwpmdgpywgypdmqygsvv`.
 4. Crear la tabla y bucket del archivo `schema.sql` después de inspeccionar el proyecto y respaldar el esquema. No ejecutar sobre otro proyecto.
 5. Probar con datos ficticios: descarga de una minuta, guardado confirmado y acceso privado al archivo.
 

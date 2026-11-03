@@ -11,7 +11,8 @@ class AppTests(unittest.TestCase):
     @patch('requests.request', side_effect=AssertionError('Sin red en pruebas'))
     def test_form_only_generates_minuta_and_clears_invalid_result(self, _):
         app = AppTest.from_file(str(ROOT/'streamlit_app.py'), default_timeout=30)
-        app.secrets['ADMIN_PASSWORD'] = ''
+        app.secrets['ADMIN_PASSWORD'] = 'test-only'
+        app.secrets['SUPABASE_SERVICE_ROLE_KEY'] = 'sb_secret_test'
         app.run()
         self.assertFalse(app.exception)
         data = fixture()
@@ -27,17 +28,25 @@ class AppTests(unittest.TestCase):
         self.assertFalse(app.exception)
         with zipfile.ZipFile(io.BytesIO(app.session_state['resultado']['zip'])) as z:
             self.assertEqual(z.namelist(), ['001_Minuta_001.docx'])
+        save = next(b for b in app.button if b.label == 'Guardar Minutas en Supabase')
+        self.assertTrue(save.disabled)
+        next(f for f in app.text_input if f.label == 'Clave administrativa para guardar').set_value('test-only').run()
+        self.assertFalse(next(b for b in app.button if b.label == 'Guardar Minutas en Supabase').disabled)
         app.text_input(key='minuta_cdp_numero').set_value('')
         next(b for b in app.button if b.label == 'Generar Minuta').click().run()
         self.assertNotIn('resultado', app.session_state)
         self.assertTrue(app.warning)
 
-    def test_password_blocks_generation(self):
+    def test_password_does_not_block_public_form_or_excel(self):
         app = AppTest.from_file(str(ROOT/'streamlit_app.py'))
         app.secrets['ADMIN_PASSWORD'] = 'test-only'
         app.run()
         self.assertFalse(app.exception)
-        self.assertFalse(app.button)
+        self.assertTrue(any(b.label == 'Generar Minuta' for b in app.button))
+        self.assertFalse(any('clave' in f.label.lower() or 'contraseña' in f.label.lower() for f in app.text_input))
+        app.radio[0].set_value('Excel').run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any(b.label == 'Generar Minutas' for b in app.button))
 
     def test_storage_exclusive_and_idempotent(self):
         calls = []
