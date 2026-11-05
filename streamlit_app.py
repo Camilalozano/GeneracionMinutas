@@ -26,7 +26,6 @@ st.title('Generación de Minutas')
 st.caption('Minutas de persona natural · Formulario y carga masiva independientes')
 
 # La captura, generación y descarga son públicas.
-actor = st.sidebar.text_input('Responsable de la generación')
 mode = st.radio('Captura de datos', ['Formulario', 'Excel'])
 rows = None
 institucion = dict(config('MINUTA_INSTITUCION', {}))
@@ -64,7 +63,7 @@ if rows is not None:
     else:
         try:
             documents = [{'id': str(uuid.uuid4()), 'data': datos_archivo(row, institucion), 'docx': generar_minuta(row, institucion),
-                          'actor': actor, 'saved': False} for _, row in rows]
+                          'actor': '', 'saved': False} for _, row in rows]
             archive = io.BytesIO()
             with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as package:
                 for i, item in enumerate(documents, 1):
